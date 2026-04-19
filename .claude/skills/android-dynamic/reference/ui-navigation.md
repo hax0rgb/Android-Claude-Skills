@@ -2,25 +2,83 @@
 
 How the agent navigates Android app screens during dynamic analysis.
 
-## Architecture: Observe-Act Loop
+## Architecture: Hybrid Observe-Act Loop
 
 ```
-┌─────────┐     ┌──────────┐     ┌─────────┐
-│ OBSERVE  │────>│  DECIDE  │────>│   ACT   │
-│ ui.py    │     │  (agent) │     │  adb    │
-│ screen   │     │          │     │  input  │
-└─────────┘     └──────────┘     └─────────┘
-      ^                                │
-      └────────────────────────────────┘
+┌──────────────┐     ┌──────────┐     ┌──────────────┐
+│   OBSERVE    │────>│  DECIDE  │────>│     ACT      │
+│   ui.py      │     │  (agent) │     │  mobile-mcp  │
+│   + screenshot│     │          │     │  tools       │
+└──────────────┘     └──────────┘     └──────────────┘
+       ^                                     │
+       └─────────────────────────────────────┘
 ```
 
-Each cycle: dump UI -> parse elements -> agent picks action -> execute via ADB -> repeat.
+**Observe** with ui.py (richer parsing, numbered list, type classification).
+**Act** with mobile-mcp MCP tools (native Claude integration, no shell-out needed).
+**Fallback** to ADB shell commands when MCP tools are unavailable.
+
+## Tool Selection: mobile-mcp vs ADB vs ui.py
+
+| Task | Preferred Tool | Fallback |
+|---|---|---|
+| Element discovery | `ui.py` (numbered list, type classification, spatial dedup) | `mobile_list_elements_on_screen` (simpler output) |
+| Screenshot | `mobile_take_screenshot` (returns inline image) | `adb shell screencap` |
+| Tap element | `mobile_click_on_screen_at_coordinates` | `adb shell input tap x y` |
+| Type text | `mobile_type_keys` (handles non-ASCII) | `adb shell input text "..."` |
+| Swipe/scroll | `mobile_swipe_on_screen` | `adb shell input swipe x1 y1 x2 y2` |
+| Long press | `mobile_long_press_on_screen_at_coordinates` | `adb shell input swipe x y x y 1000` |
+| Press button | `mobile_press_button` (BACK, HOME, etc.) | `adb shell input keyevent N` |
+| Launch app | `mobile_launch_app` | `adb shell monkey -p <pkg> -c ... 1` |
+| Install app | `mobile_install_app` | `adb install -r <apk>` |
+| Open URL/deep link | `mobile_open_url` | `adb shell am start -a VIEW -d "url"` |
+| Screen recording | `mobile_start_screen_recording` | `adb shell screenrecord` |
+| Save screenshot | `mobile_save_screenshot` | `adb pull /sdcard/screen.png` |
+| List devices | `mobile_list_available_devices` | `adb devices` |
+
+## mobile-mcp Quick Reference
+
+### Device & App Management
+```
+mobile_list_available_devices()
+mobile_list_apps(device="<id>")
+mobile_install_app(device="<id>", path="/path/to/app.apk")
+mobile_launch_app(device="<id>", packageName="com.target.app")
+mobile_terminate_app(device="<id>", packageName="com.target.app")
+mobile_uninstall_app(device="<id>", bundle_id="com.target.app")
+```
+
+### Screen Interaction
+```
+mobile_click_on_screen_at_coordinates(device="<id>", x=540, y=1200)
+mobile_double_tap_on_screen(device="<id>", x=540, y=1200)
+mobile_long_press_on_screen_at_coordinates(device="<id>", x=540, y=1200, duration=1000)
+mobile_type_keys(device="<id>", text="username", submit=false)
+mobile_swipe_on_screen(device="<id>", direction="down")
+mobile_swipe_on_screen(device="<id>", direction="up", x=540, y=1000, distance=500)
+mobile_press_button(device="<id>", button="BACK")
+mobile_open_url(device="<id>", url="https://example.com")
+```
+
+### Screenshots & Recording
+```
+mobile_take_screenshot(device="<id>")           # Returns inline image
+mobile_save_screenshot(device="<id>", saveTo="./evidence/screen.png")
+mobile_start_screen_recording(device="<id>", output="./evidence/recording.mp4")
+mobile_stop_screen_recording(device="<id>")
+```
+
+### Element Discovery
+```
+mobile_list_elements_on_screen(device="<id>")
+# Returns: [{ type, text, label, identifier, coordinates: {x,y,width,height} }]
+```
 
 ## Step 1: Observe (Screen State)
 
-### UI Hierarchy Dump
+### Option A: ui.py (Preferred for LLM reasoning)
 ```bash
-# Run the ui.py parser
+# Rich parsing with numbered elements, type classification, spatial dedup
 python3 .claude/scripts/ui.py -s <device_serial>
 ```
 
@@ -58,37 +116,97 @@ adb shell dumpsys activity activities | grep "mResumedActivity"
 adb shell dumpsys window | grep mCurrentFocus
 ```
 
-## Step 2: Act (ADB Input Commands)
+## Step 2: Act (mobile-mcp Tools - Preferred)
+
+### Tap Element
+```
+# Tap element [3] at coordinates (540,900)
+mobile_click_on_screen_at_coordinates(device="<id>", x=540, y=900)
+```
+
+### Enter Text
+```
+# First tap the input field, then type
+mobile_click_on_screen_at_coordinates(device="<id>", x=540, y=600)
+mobile_type_keys(device="<id>", text="username", submit=false)
+
+# Type and press Enter (submit login form)
+mobile_type_keys(device="<id>", text="password123", submit=true)
+```
+
+### Navigation
+```
+mobile_press_button(device="<id>", button="BACK")
+mobile_press_button(device="<id>", button="HOME")
+mobile_press_button(device="<id>", button="ENTER")
+```
+
+### Scrolling
+```
+# Scroll down
+mobile_swipe_on_screen(device="<id>", direction="down")
+
+# Scroll up
+mobile_swipe_on_screen(device="<id>", direction="up")
+
+# Scroll from specific point
+mobile_swipe_on_screen(device="<id>", direction="down", x=540, y=1000, distance=500)
+```
+
+### Long Press
+```
+mobile_long_press_on_screen_at_coordinates(device="<id>", x=540, y=900, duration=1000)
+```
+
+### Screenshot for Evidence
+```
+# Inline image (for agent to analyze visually)
+mobile_take_screenshot(device="<id>")
+
+# Save to file (for report evidence)
+mobile_save_screenshot(device="<id>", saveTo="./outputs/.../evidence/screen_001.png")
+```
+
+### Screen Recording
+```
+# Start recording before exploit
+mobile_start_screen_recording(device="<id>", output="./outputs/.../evidence/exploit.mp4")
+
+# ... perform actions ...
+
+# Stop recording
+mobile_stop_screen_recording(device="<id>")
+```
+
+## Step 2 (Fallback): ADB Input Commands
+
+Use when mobile-mcp is not available:
 
 ### Tap Element
 ```bash
 # Tap element [3] at coordinates (540,900)
-adb shell input tap 540 900
+adb -s <id> shell input tap 540 900
 ```
 
 ### Enter Text
 ```bash
 # First tap the input field, then type
-adb shell input tap 540 600
-adb shell input text "username"
-
-# For passwords (mask in logs)
-adb shell input tap 540 750
-adb shell input text "password123"
+adb -s <id> shell input tap 540 600
+adb -s <id> shell input text "username"
 ```
 
 ### Special Characters in Text
 ```bash
 # Spaces: use %s
-adb shell input text "hello%sworld"
+adb -s <id> shell input text "hello%sworld"
 
 # Special chars: use keyevents
-adb shell input keyevent 74  # @
+adb -s <id> shell input keyevent 74  # @
 ```
 
 ### Navigation Keys
 ```bash
-adb shell input keyevent 4    # BACK
+adb -s <id> shell input keyevent 4    # BACK
 adb shell input keyevent 3    # HOME
 adb shell input keyevent 187  # APP_SWITCH (recents)
 adb shell input keyevent 66   # ENTER

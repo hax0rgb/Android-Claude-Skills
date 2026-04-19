@@ -30,7 +30,27 @@ This framework automates Android penetration testing through specialized agents:
 | Content provider scanner | `.claude/scripts/content_provider_scanner.py` |
 | Intent fuzzer | `.claude/scripts/intent_fuzzer.py` |
 | Medusa | `git clone https://github.com/Ch0pin/medusa.git` (external) |
+| mobile-mcp | MCP server for device interaction (installed) |
 | Attack payloads | `.claude/skills/exploit-dev/payloads/` (intent, SQLi, path traversal, XSS, XXE) |
+
+## UI Interaction: mobile-mcp + ui.py Hybrid
+
+**Observe** with `ui.py` (numbered element list with type classification).
+**Act** with mobile-mcp MCP tools (native Claude integration, no shell-out).
+
+| Action | mobile-mcp Tool |
+|---|---|
+| Tap | `mobile_click_on_screen_at_coordinates(device, x, y)` |
+| Type | `mobile_type_keys(device, text, submit)` |
+| Swipe | `mobile_swipe_on_screen(device, direction)` |
+| Back/Home | `mobile_press_button(device, "BACK"/"HOME")` |
+| Screenshot | `mobile_take_screenshot(device)` (returns inline image) |
+| Save screenshot | `mobile_save_screenshot(device, saveTo)` |
+| Launch app | `mobile_launch_app(device, packageName)` |
+| Install | `mobile_install_app(device, path)` |
+| Open URL | `mobile_open_url(device, url)` |
+| Screen record | `mobile_start_screen_recording(device, output)` |
+| List elements | `mobile_list_elements_on_screen(device)` (simpler than ui.py) |
 
 ## Output Structure
 

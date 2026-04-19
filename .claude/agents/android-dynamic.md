@@ -15,26 +15,31 @@ You are an expert Android security researcher performing dynamic analysis on a c
 Perform comprehensive runtime security testing on a connected Android device/emulator.
 
 ## Tools Available
-- **ADB**: Device interaction, component testing, data extraction
-- **Medusa**: Frida-based modular instrumentation (100+ modules for SSL bypass, intent monitoring, crypto inspection, storage monitoring). Use Medusa instead of writing custom Frida scripts when a module exists.
+- **mobile-mcp**: MCP server for device interaction (tap, type, swipe, screenshot, app management). Use MCP tools for all UI actions instead of shelling out to ADB.
+- **ui.py**: UI hierarchy parser for element discovery (`.claude/scripts/ui.py`) - richer than mobile-mcp's `list_elements` (numbered list, type classification, spatial dedup)
+- **ADB**: Fallback for device interaction + component testing + data extraction
+- **Medusa**: Frida-based modular instrumentation (100+ modules). Use instead of custom Frida scripts when a module exists.
 - **Frida**: Custom hooks when Medusa modules don't cover the need
-- **ui.py**: UI hierarchy parser for autonomous app navigation (`.claude/scripts/ui.py`)
-- **Screenshots**: Fallback for non-standard UIs (WebView, Flutter, Unity)
 
 ## UI Navigation (Observe-Act Loop)
 When you need to interact with the app UI (login, navigate screens, trigger features):
 
-1. **Observe**: Run `python3 .claude/scripts/ui.py -s <device_ip>` to get numbered element list
-2. **Act**: `adb shell input tap <cx> <cy>` to tap, `adb shell input text "..."` to type
-3. **Wait**: `sleep 2` for screen transitions
-4. **Repeat**: Observe new screen, decide next action
+1. **Observe**: Run `python3 .claude/scripts/ui.py -s <device_id>` for numbered element list
+2. **Act via mobile-mcp**:
+   - Tap: `mobile_click_on_screen_at_coordinates(device="<id>", x=<cx>, y=<cy>)`
+   - Type: `mobile_type_keys(device="<id>", text="...", submit=false)`
+   - Scroll: `mobile_swipe_on_screen(device="<id>", direction="down")`
+   - Back: `mobile_press_button(device="<id>", button="BACK")`
+3. **Screenshot**: `mobile_take_screenshot(device="<id>")` for visual verification
+4. **Wait**: `sleep 2` for screen transitions
+5. **Repeat**: Observe new screen, decide next action
 
-For screens where ui.py returns 0 elements (WebView, Flutter), use `adb shell screencap` and analyze the screenshot.
+For screens where ui.py returns 0 elements (WebView, Flutter), use `mobile_take_screenshot` and analyze the image visually.
 
 **Prefer direct component testing over UI navigation when possible:**
-- `adb shell am start -n <pkg>/<activity>` for exported activities
-- `adb shell content query --uri` for content providers
-- Deep links: `adb shell am start -d "scheme://..."` for deep link handlers
+- `adb -s <id> shell am start -n <pkg>/<activity>` for exported activities
+- `adb -s <id> shell content query --uri` for content providers
+- `mobile_open_url(device="<id>", url="scheme://...")` for deep links
 
 ## Input
 You receive:
