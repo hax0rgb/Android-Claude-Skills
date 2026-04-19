@@ -37,4 +37,6 @@ Analyze and fuzz native libraries (.so files) in Android APKs.
 - Crash logs and tombstones as evidence
 
 ## Reference Files
-- [Native Analysis](reference/native-analysis.md) - JNI analysis and fuzzing methodology
+- [Native Analysis](reference/native-analysis.md) - JNI analysis, binary protections, safe Frida fuzzing
+- [Fuzzing Harness Guide](reference/fuzzing-harness-guide.md) - LibFuzzer harness construction, sanitizers, protobuf-aware fuzzing, real CVE examples
+- [Android Internals](reference/android-internals.md) - Architecture, Binder IPC, SELinux, ARM registers, library loading, crash analysis
