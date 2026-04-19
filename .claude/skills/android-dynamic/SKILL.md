@@ -64,3 +64,8 @@ Perform runtime security testing on a connected Android device.
 - [UI Navigation](reference/ui-navigation.md) - Observe-act loop for autonomous app navigation (ui.py + ADB input)
 - [Biometric & KeyStore Bypass](reference/biometric-keystore-bypass.md) - 7 Frida scripts for biometric bypass, KeyStore audit, cipher tracing, PBKDF analysis
 - [Android Security Evolution](../android-static/reference/android-security-evolution.md) - What attacks work on which Android versions, SSL/intent pentesting by API level
+- [SSL Pinning Bypass Workflow](reference/ssl_pinning_bypass.md) - 3 progressive bypass methods (universal, app-specific, Flutter/native)
+- [Network Testing](reference/network_testing.md) - TLS, API auth, BOLA/IDOR, WebSocket, MITM testing methodology
+- [Crypto Testing](reference/crypto_testing.md) - Algorithm audit, runtime monitoring, key derivation, Keystore analysis
+- [Frida Snippets](reference/frida_snippets.md) - Reusable one-liners for common hooking tasks
+- [Troubleshooting](reference/troubleshooting.md) - Common failures and fixes for Frida, ADB, proxy, device issues

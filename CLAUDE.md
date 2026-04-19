@@ -24,7 +24,13 @@ This framework automates Android penetration testing through specialized agents:
 | UI parser | `.claude/scripts/ui.py` |
 | Biometric bypass (null crypto) | `.claude/scripts/fingerprint-bypass.js` |
 | Biometric bypass (with crypto) | `.claude/scripts/fingerprint-bypass-crypto.js` |
+| Crypto hooks | `.claude/scripts/crypto_hooks.js` |
+| Keystore hooks | `.claude/scripts/keystore_hooks.js` |
+| Root bypass | `.claude/scripts/root_bypass.js` |
+| Content provider scanner | `.claude/scripts/content_provider_scanner.py` |
+| Intent fuzzer | `.claude/scripts/intent_fuzzer.py` |
 | Medusa | `git clone https://github.com/Ch0pin/medusa.git` (external) |
+| Attack payloads | `.claude/skills/exploit-dev/payloads/` (intent, SQLi, path traversal, XSS, XXE) |
 
 ## Output Structure
 

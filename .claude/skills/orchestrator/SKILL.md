@@ -156,6 +156,10 @@ Use `pidcat <pkg>` for logging if available (cleaner than raw logcat).
 ## Reference Files
 - [OWASP MASTG Checklist](reference/owasp-mastg-checklist.md) - 139 Android security tests mapped to agent phases
 - [Report Template](reference/report-template.md) - Comprehensive report format with finding structure
+- [Finding Template](reference/finding_template.md) - Per-finding documentation template
+- [Finding Schema](reference/finding.json) - Structured JSON schema for findings
+- [Quick Wins](reference/quick_wins.md) - Fast vulnerability identification (5-15 min checks)
+- [Pre-Engagement Checklist](reference/pre_engagement.md) - Pre-test verification checklist
 
 ## Key Rules
 - Never ask the user how to proceed - make autonomous decisions
