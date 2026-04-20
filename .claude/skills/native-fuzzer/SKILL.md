@@ -40,3 +40,4 @@ Analyze and fuzz native libraries (.so files) in Android APKs.
 - [Native Analysis](reference/native-analysis.md) - JNI analysis, binary protections, safe Frida fuzzing
 - [Fuzzing Harness Guide](reference/fuzzing-harness-guide.md) - LibFuzzer harness construction, sanitizers, protobuf-aware fuzzing, real CVE examples
 - [Android Internals](reference/android-internals.md) - Architecture, Binder IPC, SELinux, ARM registers, library loading, crash analysis
+- [Privilege Escalation](reference/privilege-escalation.md) - Kernel task_struct/cred manipulation, KASLR bypass, CVE-2023-26083 Mali GPU pointer leak PoC, real exploit chains
