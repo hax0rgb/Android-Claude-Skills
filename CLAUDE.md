@@ -500,6 +500,14 @@ Every finding in the report MUST include:
 - Save all PoC source code, Frida scripts, and exploit output to the outputs/ directory
 - Generate both .md and .docx report formats
 
+## Native Fuzzing Method (CRITICAL)
+
+**ALWAYS use AFL++ Frida mode as the default fuzzing method.** AFL++ binaries are pre-installed at `/data/local/tmp/` on the device. Do NOT default to manual Frida scripts with hand-crafted payloads — that is manual testing, not real fuzzing.
+
+**Correct pipeline:** Frida recon (trace signatures) → C harness (fuzz_one_input) → JENV (JNI env) → cross-compile → afl.js (persistent mode, module whitelist) → `afl-fuzz -O` → crash validation
+
+**Manual Frida scripts are ONLY for:** quick recon before building the harness (trace JNI calls, identify function signatures). Never use them as the primary fuzzing method.
+
 ## Native Fuzzing Safety (CRITICAL)
 
 **These rules prevent device reboots and kernel crashes:**
