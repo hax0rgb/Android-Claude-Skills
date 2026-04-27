@@ -81,13 +81,28 @@ adb -s <serial> devices
 2. Create output directory: `mkdir -p outputs/YYYYMMDD_<package>/{static,dynamic,native,exploits}`
 3. If device provided: connect/verify with `adb devices`
 4. Store additional instructions to pass to all sub-agents
+5. **Initialize dashboard status file:**
+```bash
+python3 .claude/scripts/status_writer.py \
+  --status-file outputs/YYYYMMDD_<package>/status.json \
+  --init <package> <version> <device_id> <model> <android_ver> <rooted>
+```
+6. Print dashboard launch command for user:
+```
+echo "Dashboard: In a separate terminal, run:"
+echo "  python3 .claude/scripts/dashboard.py outputs/YYYYMMDD_<package>/status.json"
+```
+
+**STATUS_FILE:** Set `STATUS_FILE=outputs/YYYYMMDD_<package>/status.json` and pass this to ALL sub-agents in their prompts. Every agent must call `status_writer.py` to update findings, activity, and notes.
 
 ### Phase 1: Static Analysis
-Spawn the `android-static` agent. Pass any additional instructions from the user:
+Spawn the `android-static` agent. Pass STATUS_FILE and any additional instructions from the user:
 ```
 Agent(prompt="You are the android-static agent. Follow .claude/agents/android-static.md.
 Target APK: <path>
 Output dir: outputs/YYYYMMDD_<pkg>/static/
+STATUS_FILE: outputs/YYYYMMDD_<pkg>/status.json
+Update the dashboard: call python3 .claude/scripts/status_writer.py --status-file <STATUS_FILE> for findings, activity, and notes.
 Additional instructions from user: <user_instructions>")
 ```
 

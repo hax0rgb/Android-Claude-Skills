@@ -24,6 +24,33 @@ Every finding must include:
 }
 ```
 
+### Dashboard Status Updates
+All agents MUST update the live dashboard by calling `status_writer.py`. The status file path is passed in the agent prompt as `STATUS_FILE=<path>`.
+
+```bash
+# Report a finding
+python3 .claude/scripts/status_writer.py --status-file $STATUS_FILE \
+  --add-finding "HIGH" "WebView file theft via intent extras" "confirmed"
+
+# Log activity
+python3 .claude/scripts/status_writer.py --status-file $STATUS_FILE \
+  --add-activity "Testing exported activity: com.app/.AdminPanel"
+
+# Add agent commentary
+python3 .claude/scripts/status_writer.py --status-file $STATUS_FILE \
+  --add-note "Crash confirmed - SIGSEGV (exit 139) on replay"
+
+# Update stage progress
+python3 .claude/scripts/status_writer.py --status-file $STATUS_FILE \
+  --set-stage "dynamic" "running" "testing content providers"
+```
+
+**When to update:**
+- On each new finding: `--add-finding`
+- On each significant action: `--add-activity`
+- On interesting observations/crashes: `--add-note`
+- On phase transitions: `--set-stage`
+
 ### Agent Interaction
 - Orchestrator delegates; executors execute. No executor should delegate to other agents.
 - When receiving findings from a prior phase, validate them before building on them.
