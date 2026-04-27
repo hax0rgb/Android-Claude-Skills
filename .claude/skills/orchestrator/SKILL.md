@@ -81,17 +81,17 @@ adb -s <serial> devices
 2. Create output directory: `mkdir -p outputs/YYYYMMDD_<package>/{static,dynamic,native,exploits}`
 3. If device provided: connect/verify with `adb devices`
 4. Store additional instructions to pass to all sub-agents
-5. **Initialize dashboard status file:**
+5. **Initialize dashboard and auto-launch it:**
 ```bash
+# Initialize status file
 python3 .claude/scripts/status_writer.py \
   --status-file outputs/YYYYMMDD_<package>/status.json \
   --init <package> <version> <device_id> <model> <android_ver> <rooted>
+
+# Auto-launch dashboard in a new macOS Terminal window
+osascript -e 'tell application "Terminal" to do script "cd '"$(pwd)"' && python3 .claude/scripts/dashboard.py outputs/YYYYMMDD_<package>/status.json"'
 ```
-6. Print dashboard launch command for user:
-```
-echo "Dashboard: In a separate terminal, run:"
-echo "  python3 .claude/scripts/dashboard.py outputs/YYYYMMDD_<package>/status.json"
-```
+This opens a new Terminal window with the live dashboard automatically. No manual step needed.
 
 **STATUS_FILE:** Set `STATUS_FILE=outputs/YYYYMMDD_<package>/status.json` and pass this to ALL sub-agents in their prompts. Every agent must call `status_writer.py` to update findings, activity, and notes.
 
