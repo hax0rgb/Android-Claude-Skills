@@ -1,187 +1,232 @@
 ---
 name: orchestrator
-description: Run full Android penetration test - orchestrates static analysis, dynamic testing, native fuzzing, and exploit validation across all agents
+description: Run full Android penetration test - orchestrates ranking, parallel hunters, dynamic analysis, chain-finding, exploit validation, and coverage verification
 argument-hint: <apk_path> [device] [additional instructions...]
 ---
 
 # Android Pentest Orchestrator
 
-Run a comprehensive Android penetration test on the provided APK.
-
-**IMPORTANT:** This skill runs in the main conversation context (NOT forked) because it needs the `Agent` tool to spawn sub-agents. Subagents cannot spawn other subagents in Claude Code.
+**IMPORTANT:** This skill runs in the main conversation context (NOT forked) because it needs the `Agent` tool to spawn sub-agents.
 
 ## Arguments
 - `$ARGUMENTS[0]` - Path to the target APK file (required)
-- `$ARGUMENTS[1]` - Device identifier (optional). Accepts:
-  - IP:port for WiFi/network: `192.168.1.100:5555`
-  - USB serial number: `2cf4fc4d`
-  - Skip or omit for static-only mode
-- `$ARGUMENTS[2+]` - Additional instructions (optional). Free-text instructions passed to all agents. Examples:
-  - Credentials: `Use admin:password123 to login`
-  - Focus areas: `Focus on WebView and deep link attack surface`
-  - Scope limits: `Only test exported components, skip native analysis`
-  - App context: `App is already installed on device, package name is com.example.app`
+- `$ARGUMENTS[1]` - Device identifier: IP:port or USB serial (optional)
+- `$ARGUMENTS[2+]` - Additional instructions (optional): credentials, focus areas, scope limits
 
-## Quick Start
+## Pipeline Overview
 
-Execute all phases of Android security testing:
-
-1. **Static Analysis** - Run automated scanner + manual code review
-2. **Dynamic Analysis** - Runtime testing on connected device
-3. **Native Fuzzing** - Analyze and fuzz native libraries
-4. **Exploit Validation** - Create and execute PoCs for verified findings
-5. **Reporting** - Consolidated findings report
-
-## Usage Examples
 ```
-# Full test with WiFi device
-/orchestrator /path/to/app.apk 192.168.1.100:5555
-
-# Full test with USB device
-/orchestrator /path/to/app.apk 2cf4fc4d
-
-# Static-only (no device)
-/orchestrator /path/to/app.apk
-
-# With credentials and focus area
-/orchestrator /path/to/app.apk 192.168.1.16:5555 Use testuser:Pass123! to login. Focus on intent redirection and WebView vulnerabilities.
-
-# App already installed, provide package name
-/orchestrator /path/to/app.apk 2cf4fc4d App is already installed. Package: com.example.app. Skip native fuzzing.
+Phase 0: Setup + Dashboard Launch
+Phase 0.5: Attack Surface Ranking → targets.json
+Phase 1: Parallel Static Hunters (8-12 lane-specific agents)
+Phase 2: Dynamic Analysis (if device)
+Phase 3: Native Fuzzing (CONDITIONAL - only if ranking/scanner found native attack surface)
+Phase 3.5: Chain Finder (composes findings into multi-step chains)
+Phase 4: Dedup → Exploit Validation (PoC apps)
+Phase 5: Coverage Verification → Reporting
 ```
 
-## Execution Instructions
+## Phase 0: Setup
 
-You are the orchestrator. You have access to `Bash`, `Agent`, `Read`, `Write`, and all other tools. Follow the orchestrator agent definition in `.claude/agents/orchestrator.md` for the full workflow.
-
-### Phase 0: Setup
-
-**Parse arguments:**
-- `$ARGUMENTS[0]` = APK path
-- `$ARGUMENTS[1]` = Device identifier (may be IP:port OR USB serial, or absent)
-- `$ARGUMENTS[2+]` = Additional user instructions (join into single string)
-
-**Detect device type:**
+1. Extract package name: `aapt dump badging <apk> | grep package`
+2. Create output dirs: `mkdir -p outputs/YYYYMMDD_<pkg>/{static,dynamic,native,exploits,findings}`
+3. If device: `adb connect <ip:port>` or verify `adb -s <serial> devices`
+4. Initialize + auto-launch dashboard:
 ```bash
-# If device arg contains ":" -> it's IP:port, connect via network
-adb connect <ip:port>
-
-# If device arg is alphanumeric without ":" -> it's USB serial, use -s flag
-adb -s <serial> devices
-
-# If no device arg -> static-only mode
+python3 .claude/scripts/status_writer.py --status-file outputs/YYYYMMDD_<pkg>/status.json \
+  --init <pkg> <ver> <device_id> <model> <android_ver> <rooted>
+osascript -e 'tell application "Terminal" to do script "cd '"$(pwd)"' && python3 .claude/scripts/dashboard.py outputs/YYYYMMDD_<pkg>/status.json"'
 ```
 
-**All ADB commands must use the device flag:**
-- Network: `adb -s <ip:port> shell ...`
-- USB: `adb -s <serial> shell ...`
+**STATUS_FILE=`outputs/YYYYMMDD_<pkg>/status.json`** — pass to ALL sub-agents.
 
-**Steps:**
-1. Extract package name: `aapt dump badging <apk> | grep package` (or `aapt2`, or parse manifest)
-2. Create output directory: `mkdir -p outputs/YYYYMMDD_<package>/{static,dynamic,native,exploits}`
-3. If device provided: connect/verify with `adb devices`
-4. Store additional instructions to pass to all sub-agents
-5. **Initialize dashboard and auto-launch it:**
+## Phase 0.5: Attack Surface Ranking
+
+**Run FIRST, before any hunters.** This drives everything downstream.
+
 ```bash
-# Initialize status file
-python3 .claude/scripts/status_writer.py \
-  --status-file outputs/YYYYMMDD_<package>/status.json \
-  --init <package> <version> <device_id> <model> <android_ver> <rooted>
-
-# Auto-launch dashboard in a new macOS Terminal window
-osascript -e 'tell application "Terminal" to do script "cd '"$(pwd)"' && python3 .claude/scripts/dashboard.py outputs/YYYYMMDD_<package>/status.json"'
-```
-This opens a new Terminal window with the live dashboard automatically. No manual step needed.
-
-**STATUS_FILE:** Set `STATUS_FILE=outputs/YYYYMMDD_<package>/status.json` and pass this to ALL sub-agents in their prompts. Every agent must call `status_writer.py` to update findings, activity, and notes.
-
-### Phase 1: Static Analysis
-Spawn the `android-static` agent. Pass STATUS_FILE and any additional instructions from the user:
-```
-Agent(prompt="You are the android-static agent. Follow .claude/agents/android-static.md.
-Target APK: <path>
-Output dir: outputs/YYYYMMDD_<pkg>/static/
-STATUS_FILE: outputs/YYYYMMDD_<pkg>/status.json
-Update the dashboard: call python3 .claude/scripts/status_writer.py --status-file <STATUS_FILE> for findings, activity, and notes.
-Additional instructions from user: <user_instructions>")
+python3 .claude/scripts/status_writer.py --status-file $STATUS_FILE \
+  --set-stage static running "ranking attack surface"
 ```
 
-### Phase 2: Dynamic Analysis (if device provided)
-After static completes, spawn `android-dynamic` agent with findings from Phase 1. Pass device identifier (IP:port or serial) and user instructions:
+Spawn the ranking agent:
 ```
-Agent(prompt="You are the android-dynamic agent. Follow .claude/agents/android-dynamic.md.
-APK: <path>
-Device: <device_id>  (use 'adb -s <device_id>' for all commands)
-Package: <pkg>
-Output: outputs/.../dynamic/
-Static findings: <summary of Phase 1 findings>
-Additional instructions from user: <user_instructions>")
-```
-
-### Phase 3: Native Analysis (CONDITIONAL - not default)
-
-**DO NOT run native fuzzer by default.** Only spawn it when ONE of these conditions is met:
-1. Static analysis scanner reports a finding titled "Exported Activity Exposes Native Library to Arbitrary Invocation" or similar native-related finding
-2. An exported component directly calls a native method (JNI) with attacker-controllable input (found during static code review)
-3. The user explicitly requests native fuzzing in additional instructions
-
-**How to check:** After Phase 1 completes, search the static findings for:
-- Native library references in exported components
-- `System.loadLibrary` / `System.load` called from exported activities/services
-- JNI methods (`native` keyword) invoked with intent extra data
-- Scanner findings mentioning native/JNI/`.so` vulnerabilities
-
-If condition is met:
-```
-Agent(prompt="You are the native-fuzzer agent. Follow .claude/agents/native-fuzzer.md.
-APK: <path>. Device: <device_id>. Output: outputs/.../native/
-CONTEXT: Static analysis found the following native-related findings: <relevant_findings>
-Focus fuzzing on the native functions reachable from these exported components: <component_list>
-Additional instructions from user: <user_instructions>")
+Agent(prompt="You are the attack-surface-ranker. Follow .claude/agents/attack-surface-ranker.md.
+Run the scanner first:
+/Users/gaurangbhatnagar/Documents/android-security-scanner/backend/venv/bin/python3 \
+  /Users/gaurangbhatnagar/Documents/android-security-scanner/backend/scanner.py <apk> \
+  -o outputs/.../static/scanner_results.json --work-dir outputs/.../static/work
+Then rank the attack surface using scanner results + decompiled sources.
+Output: outputs/.../targets.json
+STATUS_FILE: <path>")
 ```
 
-If no condition is met, skip Phase 3 and note in the report: "Native fuzzing skipped - no native libraries reachable from exported attack surface."
+Wait for `targets.json`. Read it. This tells you:
+- Which lanes have rank-5 targets (must be covered)
+- Whether native code is reachable (determines Phase 3)
+- App type (informs dynamic testing strategy)
 
-### Phase 4: Exploit Validation
-For each high/critical finding, spawn exploit-validator. **The exploit-validator MUST create PoC Android apps** (not just ADB commands) for intent/broadcast/provider/WebView/deep link findings. ADB-only proves reachability, not real-world exploitability.
+## Phase 1: Parallel Static Hunters
+
+Fan out into **lane-specific hunter agents running in parallel**. Each hunter gets:
+- Its lane (what to look for)
+- Its targets from `targets.json` (only rank ≥ 3 items in its lane)
+- Excluded lanes (what other hunters are doing — note but don't pursue)
+- Reference to relevant KB section
+- Decompiled source path
+
+**Spawn ALL hunters in a single message (parallel):**
+
 ```
-Agent(prompt="You are the exploit-validator agent. Follow .claude/agents/exploit-validator.md.
-IMPORTANT: Create a complete PoC Android app for this finding - not just ADB commands.
-The PoC app must demonstrate how a malicious third-party app exploits this vulnerability.
-Write complete Java source + AndroidManifest.xml + BUILD_INSTRUCTIONS.md to the output dir.
-Finding: <details>. Device: <ip>. Package: <pkg>. Output: outputs/.../exploits/")
+# Launch all applicable hunters at once
+Agent(prompt="You are the IPC hunter. Focus ONLY on intent handling, exported components, PendingIntents, broadcast receivers.
+Your targets from targets.json: <ipc_targets>
+Excluded lanes: webview, crypto, auth, storage, native, deeplinks, network
+Decompiled sources: outputs/.../static/work/decompiled/sources/
+Output findings to: outputs/.../findings/static/ipc.json
+STATUS_FILE: <path>
+If you spot a bug in another lane, write a one-line note for that hunter and move on.")
+
+Agent(prompt="You are the WebView hunter. Focus ONLY on WebView security: JS enabled, addJavascriptInterface, file access, URL validation, shouldOverrideUrlLoading.
+Your targets: <webview_targets>
+...")
+
+Agent(prompt="You are the ContentProvider hunter. Focus ONLY on content providers: SQL injection, path traversal, grantUriPermissions, openFile, URI validation.
+Your targets: <provider_targets>
+...")
+
+Agent(prompt="You are the Crypto/Storage hunter. Focus ONLY on: hardcoded keys, weak algorithms, ECB mode, SharedPreferences plaintext, database encryption, external storage.
+Your targets: <crypto_storage_targets>
+...")
+
+Agent(prompt="You are the Auth/Session hunter. Focus ONLY on: authentication flow, biometric implementation, session management, token storage, credential handling.
+Your targets: <auth_targets>
+...")
+
+Agent(prompt="You are the Deep Link hunter. Focus ONLY on: deep link schemes, URL validation in handlers, parameter injection, scheme hijacking, Jetpack Navigation deepLinkIds.
+Your targets: <deeplink_targets>
+...")
+
+Agent(prompt="You are the Secrets hunter. Focus ONLY on: hardcoded API keys, AWS credentials, Firebase config, private keys, tokens in code/resources/strings.xml/BuildConfig.
+Validate found keys using .claude/skills/android-static/reference/api-key-validation.md.
+Your targets: <all app classes>
+...")
 ```
 
-### Phase 5: Reporting
-Generate a **comprehensive** report following the template in `.claude/skills/orchestrator/reference/report-template.md`.
+**Only spawn hunters for lanes that have rank ≥ 3 targets.** Check `lane_summary` in `targets.json`. If a lane has 0 targets, skip it.
 
-The report MUST include for each finding:
-- **Description**: 3-5 sentences explaining the vulnerability, root cause, and missing security control
-- **Vulnerable Code**: Relevant code snippet with line numbers
-- **Impact**: Real-world attacker impact, prerequisites, business impact
-- **Proof of Concept**: Attack scenario steps, PoC app reference, ADB validation command, evidence screenshots, logcat output
-- **Remediation**: Specific code fix with before/after examples
+After all hunters complete, collect findings from `findings/static/*.json`.
 
-Generate both:
-- `outputs/YYYYMMDD_<pkg>/report.md` (Markdown with embedded screenshot references)
-- `outputs/YYYYMMDD_<pkg>/report.docx` (if pandoc available: `pandoc report.md -o report.docx`)
+```bash
+python3 .claude/scripts/status_writer.py --status-file $STATUS_FILE \
+  --set-stage static completed "$(ls findings/static/*.json | wc -l) hunters completed"
+```
 
-Use `pidcat <pkg>` for logging if available (cleaner than raw logcat).
+## Phase 2: Dynamic Analysis (if device provided)
+
+```bash
+python3 .claude/scripts/status_writer.py --status-file $STATUS_FILE \
+  --set-stage dynamic running "connecting to device"
+```
+
+Spawn `android-dynamic` agent with:
+- All static findings (summarized)
+- `targets.json` rank-5 components to test first
+- Device identifier
+- STATUS_FILE
+
+## Phase 3: Native Fuzzing (CONDITIONAL)
+
+**Trigger conditions** (expanded to include ranking agent's judgment):
+1. Scanner reports native-related finding
+2. Exported component directly calls JNI with attacker input
+3. `targets.json` has rank ≥ 4 items in the `native` lane
+4. User explicitly requests it
+
+If no condition met: skip, note "Native fuzzing skipped — no native attack surface."
+
+## Phase 3.5: Chain Finder (NEW)
+
+**Run after all hunters + dynamic complete, before Validator.**
+
+```bash
+python3 .claude/scripts/status_writer.py --status-file $STATUS_FILE \
+  --add-activity "Running chain-finder: composing findings into attack chains"
+```
+
+```
+Agent(prompt="You are the chain-finder. Follow .claude/agents/chain-finder.md.
+Read all findings from:
+- outputs/.../findings/static/*.json
+- outputs/.../dynamic/dynamic_findings.json
+- outputs/.../targets.json
+Look for multi-step attack chains where finding A's output feeds finding B's input.
+Output: outputs/.../findings/chains.json
+STATUS_FILE: <path>")
+```
+
+## Phase 4: Dedup → Exploit Validation
+
+### Step 4a: Dedup
+
+```
+Agent(model="sonnet", prompt="You are the dedup-agent. Follow .claude/agents/dedup-agent.md.
+Read all findings from outputs/.../findings/ and outputs/.../dynamic/.
+Cluster by root cause, pick best representative.
+Output: outputs/.../findings/deduped_findings.json")
+```
+
+### Step 4b: Exploit Validation
+
+For each **unique** HIGH/CRITICAL finding from deduped set + all chains:
+
+```
+Agent(prompt="You are the exploit-validator. Follow .claude/agents/exploit-validator.md.
+IMPORTANT: Create a complete PoC Android app for this finding.
+Finding: <details from deduped_findings.json>
+Device: <id>. Package: <pkg>. Output: outputs/.../exploits/
+STATUS_FILE: <path>")
+```
+
+## Phase 5: Coverage → Reporting
+
+### Step 5a: Coverage Verification
+
+```
+Agent(model="sonnet", prompt="You are the coverage-agent. Follow .claude/agents/coverage-agent.md.
+Cross-reference targets.json against all findings and activity.
+Flag rank-5 gaps for re-run.
+Output: outputs/.../findings/coverage_report.json")
+```
+
+**If coverage agent flags critical gaps (rank-5 with no activity):** re-run the specific hunter for that lane.
+
+### Step 5b: Report Generation
+
+Generate comprehensive report following `reference/report-template.md`. Include:
+- All deduped findings with PoC references
+- All chains as separate findings (CHAIN-001, etc.)
+- Coverage table from coverage agent
+- Attack chain diagrams
+
+```bash
+python3 .claude/scripts/status_writer.py --status-file $STATUS_FILE \
+  --set-stage reporting completed "report generated"
+```
 
 ## Reference Files
-- [OWASP MASTG Checklist](reference/owasp-mastg-checklist.md) - 139 Android security tests mapped to agent phases
-- [Report Template](reference/report-template.md) - Comprehensive report format with finding structure
-- [Finding Template](reference/finding_template.md) - Per-finding documentation template
-- [Finding Schema](reference/finding.json) - Structured JSON schema for findings
-- [Quick Wins](reference/quick_wins.md) - Fast vulnerability identification (5-15 min checks)
-- [Pre-Engagement Checklist](reference/pre_engagement.md) - Pre-test verification checklist
+- [OWASP MASTG Checklist](reference/owasp-mastg-checklist.md)
+- [Report Template](reference/report-template.md)
+- [Finding Template](reference/finding_template.md)
+- [Quick Wins](reference/quick_wins.md)
+- [Pre-Engagement Checklist](reference/pre_engagement.md)
 
 ## Key Rules
-- Never ask the user how to proceed - make autonomous decisions
-- Chain context: pass relevant findings from prior phases to new agents
-- Run independent agents in parallel (native-fuzzer alongside dynamic)
-- If an agent fails, retry once before moving on
-- Skip dynamic/exploit phases if no device IP provided
-- **PoC apps are mandatory** for intent/broadcast/provider/WebView findings - ADB-only is insufficient
-- **Capture before/after screenshots** for every exploited finding
-- **Report must be detailed** - follow the template in reference/report-template.md
+- Never ask user how to proceed — autonomous decisions
+- **Always run ranking before hunters** — targets.json drives everything
+- **Fan out static hunters in parallel** — one message, multiple Agent calls
+- **Chain-finder runs after hunters, before Validator** — catches composite bugs
+- **Dedup before Validator** — don't build 14 PoC apps for one root cause
+- **Coverage check before report** — re-run for rank-5 gaps
+- Pass STATUS_FILE to every sub-agent
+- PoC apps mandatory for intent/broadcast/provider/WebView findings
