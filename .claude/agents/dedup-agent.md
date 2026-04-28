@@ -58,10 +58,22 @@ Write `findings/deduped_findings.json`:
       {"id": "DYNAMIC-002", "component": "about_activity", "note": "Confirmed dynamically, same root cause"}
     ],
     "root_cause": "IntentProcessor.forward() at com.app.util.IntentProcessor:47 forwards Parcelable extras without component validation",
-    "single_fix": "Add component package check before startActivity() in IntentProcessor.forward()"
+    "single_fix": "Add component package check before startActivity() in IntentProcessor.forward()",
+    "severity_after_clustering": "CRITICAL",
+    "severity_rationale": "Original HIGH bumped to CRITICAL: 3 affected components means broader exposure, multiple exploitation paths through different entry points"
   }
 ]
 ```
+
+### Step 4.5: Severity Recalibration
+
+After clustering, recalibrate severity based on cluster size:
+- Cluster of 1: keep original severity
+- Cluster of 2-3: consider bump if multiple entry points increase exploitability
+- Cluster of 4+: bump one tier (MEDIUM→HIGH, HIGH→CRITICAL) — broader exposure = higher impact
+- If cluster contains both static + dynamic confirmation: bump one tier (confirmed exploitable)
+
+The Validator uses `severity_after_clustering`, not the original severity.
 
 ### Step 5: Summary Stats
 

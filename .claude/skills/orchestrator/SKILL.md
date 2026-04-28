@@ -99,12 +99,18 @@ Agent(prompt="You are the Crypto/Storage hunter. Focus ONLY on: hardcoded keys, 
 Your targets: <crypto_storage_targets>
 ...")
 
-Agent(prompt="You are the Auth/Session hunter. Focus ONLY on: authentication flow, biometric implementation, session management, token storage, credential handling.
+Agent(prompt="You are the Auth/Session/Logic hunter. Focus ONLY on: authentication flow, biometric implementation, session management, token storage, credential handling, AND business logic flaws (paywall bypass, client-side enforcement of server-side rules, race conditions in state machines, quota/entitlement issues).
+App type from targets.json: <app_type> (use this to focus business logic checks — e.g., banking=payment flow, social=profile manipulation, enterprise=MDM bypass).
 Your targets: <auth_targets>
 ...")
 
 Agent(prompt="You are the Deep Link hunter. Focus ONLY on: deep link schemes, URL validation in handlers, parameter injection, scheme hijacking, Jetpack Navigation deepLinkIds.
 Your targets: <deeplink_targets>
+...")
+
+Agent(prompt="You are the Native Bridge hunter. Follow .claude/agents/native-bridge-hunter.md.
+Focus ONLY on the JNI boundary: tainted data flowing into native methods, return-value trust, RegisterNatives hidden bindings, library loading from writable paths, type mismatches at JNI interface.
+Your targets: <native_targets>
 ...")
 
 Agent(prompt="You are the Secrets hunter. Focus ONLY on: hardcoded API keys, AWS credentials, Firebase config, private keys, tokens in code/resources/strings.xml/BuildConfig.
@@ -199,7 +205,20 @@ Flag rank-5 gaps for re-run.
 Output: outputs/.../findings/coverage_report.json")
 ```
 
-**If coverage agent flags critical gaps (rank-5 with no activity):** re-run the specific hunter for that lane.
+**If coverage agent flags critical gaps (rank-5 with no activity):** re-run the specific hunter for that lane with a **diversity prompt**:
+
+```
+Agent(prompt="You are the <lane> hunter, SECOND PASS.
+Previous run found these bugs: <list from first run>
+DO NOT rediscover those. Look for what was MISSED.
+Perspective: Assume the obvious bugs are already found. You are a paranoid auditor —
+every method is suspect, every input path might have a subtle flaw.
+Focus ONLY on these rank-5 targets that had no activity: <gap_targets>
+Budget: 100k tokens max. If nothing found, confirm 'audited with low confidence.'
+...")
+```
+
+**Re-run budget:** Maximum ONE re-run per rank-5 gap. After that, mark as "audited with low confidence" in the report.
 
 ### Step 5b: Report Generation
 
