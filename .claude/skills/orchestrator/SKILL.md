@@ -113,8 +113,10 @@ Focus ONLY on the JNI boundary: tainted data flowing into native methods, return
 Your targets: <native_targets>
 ...")
 
-Agent(prompt="You are the Secrets hunter. Focus ONLY on: hardcoded API keys, AWS credentials, Firebase config, private keys, tokens in code/resources/strings.xml/BuildConfig.
-Validate found keys using .claude/skills/android-static/reference/api-key-validation.md.
+Agent(prompt="You are the secrets-hunter. Follow .claude/agents/secrets-hunter.md.
+Run semgrep + trufflehog + nuclei on decompiled sources, dedup by fingerprint, AI-validate each finding, verify exploitable keys.
+Decompiled sources: outputs/.../static/work/decompiled/sources/
+APK path: <path>
 Your targets: <all app classes>
 ...")
 ```
