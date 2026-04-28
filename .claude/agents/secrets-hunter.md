@@ -29,13 +29,34 @@ Decompiled APK
 - Output directory
 - STATUS_FILE
 
-## Phase 1: Multi-Tool Scanning
+## Phase 1: Multi-Tool Scanning (MANDATORY SCRIPT)
 
-Run all three tools on the decompiled sources. Each catches different things.
+**CRITICAL: Run the deterministic scanner script FIRST. Do NOT substitute with grep.**
+
+```bash
+# This script runs semgrep + trufflehog + nuclei + native strings + resource scan
+# It is deterministic — all tools run regardless of early results
+bash .claude/scripts/secret_scanner.sh \
+  <decompiled_sources> \
+  <output_dir>/secrets \
+  <apk_path>
+```
+
+The script produces these files:
+- `secrets/secrets_semgrep.json` — semgrep pattern matches
+- `secrets/secrets_trufflehog.json` — trufflehog entropy matches
+- `secrets/secrets_nuclei.json` — nuclei template matches
+- `secrets/secrets_native.txt` — strings from .so files
+- `secrets/secrets_resources.txt` — resource/BuildConfig/JWT/private key matches
+
+**Your job starts at Phase 2.** Do NOT re-run the tools manually or substitute with grep.
+If the script fails on a specific tool (not installed), it continues with the others.
+
+### How Each Tool Contributes (for understanding, NOT for re-implementation)
 
 ### 1a. Semgrep (Pattern-Based)
 ```bash
-# Run semgrep with secret detection rules
+# Already run by secret_scanner.sh — DO NOT RUN MANUALLY
 semgrep --config "p/secrets" --config "p/owasp-top-ten" \
   --json --output <output>/secrets_semgrep.json \
   <decompiled_sources>/<base_package>/
