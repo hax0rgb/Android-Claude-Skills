@@ -35,6 +35,7 @@ This framework automates Android penetration testing through specialized agents:
 | AFL Frida agent (JVM patch) | `.claude/scripts/afl-frida-jvm-patch.js` (+ Thread.sleep bypass) |
 | RegisterNatives hook | `.claude/scripts/printregisternative.js` (discovers dynamic JNI bindings) |
 | Secret scanner | `.claude/scripts/secret_scanner.sh` (runs semgrep+trufflehog+nuclei deterministically) |
+| Preflight check | `.claude/scripts/preflight_check.py` (verifies all tools installed before agent run) |
 | Attack payloads | `.claude/skills/exploit-dev/payloads/` (intent, SQLi, path traversal, XSS, XXE) |
 
 ## UI Interaction: mobile-mcp + ui.py Hybrid

@@ -28,9 +28,16 @@ Phase 5: Coverage Verification → Reporting
 
 ## Phase 0: Setup
 
-1. Extract package name: `aapt dump badging <apk> | grep package`
-2. Create output dirs: `mkdir -p outputs/YYYYMMDD_<pkg>/{static,dynamic,native,exploits,findings}`
-3. If device: `adb connect <ip:port>` or verify `adb -s <serial> devices`
+1. **Run preflight check (MANDATORY FIRST STEP):**
+```bash
+python3 .claude/scripts/preflight_check.py --device <device_id_if_provided>
+```
+If status is NOT READY, stop and tell user which tools to install.
+If device tools are missing (frida-server, afl-fuzz), warn but continue.
+
+2. Extract package name: `aapt dump badging <apk> | grep package`
+3. Create output dirs: `mkdir -p outputs/YYYYMMDD_<pkg>/{static,dynamic,native,exploits,findings}`
+4. If device: `adb connect <ip:port>` or verify `adb -s <serial> devices`
 4. Initialize + auto-launch dashboard:
 ```bash
 python3 .claude/scripts/status_writer.py --status-file outputs/YYYYMMDD_<pkg>/status.json \
